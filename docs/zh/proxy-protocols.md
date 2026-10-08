@@ -6,14 +6,14 @@ dae 支持以下代理协议：
 | --- | --- | --- |
 | HTTP(S)、naiveproxy | — | [HTTP(S)](#https) |
 | Socks | **版本**： Socks4 / Socks4a / Socks5 | [Socks](#socks) |
-| VMess / VLESS | **VMess**： AEAD, alterID=0<br>**传输**： TCP / WS / gRPC / Meek / HTTPUpgrade<br>**TLS**：支持 Reality | [v2rayN](https://github.com/2dust/v2rayN/wiki/%E5%88%86%E4%BA%AB%E9%93%BE%E6%8E%A5%E6%A0%BC%E5%BC%8F%E8%AF%B4%E6%98%8E(ver-2))<br>[DuckSoft](https://github.com/XTLS/Xray-core/discussions/716) |
-| Shadowsocks | **加密**： AEAD / Stream Ciphers<br>**插件**： simple-obfs / shadow-tls (SIP003)，参阅[插件说明](#shadowsocks-插件) | [SIP002](https://shadowsocks.org/doc/sip002.html)<br>[SIP008](https://shadowsocks.org/doc/sip008.html) |
+| VMess / VLESS | **VMess**： AEAD, alterID=0<br>**传输**： TCP / WS / gRPC / Meek / HTTPUpgrade<br>**TLS**：支持 Reality、[JLS](#jls) | [v2rayN](https://github.com/2dust/v2rayN/wiki/%E5%88%86%E4%BA%AB%E9%93%BE%E6%8E%A5%E6%A0%BC%E5%BC%8F%E8%AF%B4%E6%98%8E(ver-2))<br>[DuckSoft](https://github.com/XTLS/Xray-core/discussions/716) |
+| Shadowsocks | **加密**： AEAD / Stream Ciphers<br>**插件**： simple-obfs / shadow-tls / [JLS](#jls) (SIP003)，参阅[插件说明](#shadowsocks-插件) | [SIP002](https://shadowsocks.org/doc/sip002.html)<br>[SIP008](https://shadowsocks.org/doc/sip008.html) |
 | ShadowsocksR | — | — |
-| Trojan | Trojan-gfw / Trojan-go | [trojan/trojan-go](https://p4gefau1t.github.io/trojan-go/developer/url) |
+| Trojan | Trojan-gfw / Trojan-go<br>**TLS**：支持 [JLS](#jls) | [trojan/trojan-go](https://p4gefau1t.github.io/trojan-go/developer/url) |
 | Tuic | **版本**： v5 | [Tuic](https://github.com/daeuniverse/dae/discussions/182) |
 | Juicity | — | [Juicity](https://github.com/juicity/juicity?tab=readme-ov-file#link-format) |
 | Hysteria2 | — | [Hysteria2](https://v2.hysteria.network/docs/developers/URI-Scheme) |
-| AnyTLS | — | [AnyTLS](https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md) |
+| AnyTLS | **TLS**：支持 [JLS](#jls) | [AnyTLS](https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md) |
 | 代理链（灵活协议） | — | [Proxy chain](https://github.com/daeuniverse/dae/discussions/236) |
 
 表中协议均已支持。“—”表示原文未列出细分信息或 URI 参考链接。
@@ -45,6 +45,29 @@ ShadowTLS v3 链接也可直接使用 `shadowtls://`。
 - 在链接的查询参数中附加 `tlsImplementation=utls&utlsImitate=chrome`。
 
 如果提供商要求不使用自定义 SNI，请省略 `sni`，或将其值明确设为空。
+
+## JLS
+
+[JLS](https://github.com/JimmyHuang454/JLS) 把代理服务器隐藏在真实网站的 TLS 握手之后。客户端把预共享的用户名和密码封装进 TLS 1.3 ClientHello 的 random，服务器在 ServerHello 的 random 中返回证明，因此服务器不需要自己的证书。没有凭据的客户端（包括主动探测者）会被转发到 SNI 所指的网站。dae 实现客户端，可与 mihomo 的 JLS 服务端（`plugin: jls`、`jls-opts`）以及基于 rustls-jls、jls-tls 的服务端互通。
+
+| 协议 | 链接参数 |
+| --- | --- |
+| Shadowsocks | SIP003 插件 `jls;host=<SNI>;username=<用户名>;password=<密码>[;alpn=h2,http/1.1]` |
+| Trojan、VLESS、AnyTLS | `security=jls&jls-username=<用户名>&jls-password=<密码>`，SNI 取自 `sni` |
+| VMess | 在分享链接的 JSON 中设置 `"tls": "jls"`、`"jls-username"` 和 `"jls-password"` |
+
+```
+ss://<base64(method:password)>@<server>:443?plugin=jls%3Bhost%3Dwww.example.com%3Busername%3Djls-user%3Bpassword%3Djls-password
+trojan://<password>@<server>:443?security=jls&sni=www.example.com&jls-username=jls-user&jls-password=jls-password
+vless://<uuid>@<server>:443?type=tcp&security=jls&sni=www.example.com&jls-username=jls-user&jls-password=jls-password
+anytls://<password>@<server>:443?security=jls&sni=www.example.com&jls-username=jls-user&jls-password=jls-password
+```
+
+- rustls-jls 把 `username` 称为 `iv`，把 `password` 称为 `pwd`；Shadowsocks 插件两种写法都接受。
+- SNI 应设为服务器转发未认证客户端时所用的网站。未设置 `sni` 时，Shadowsocks、VLESS 和 VMess 使用 `host`，其余情况下 dae 使用服务器地址。
+- JLS 替换 TCP、WebSocket 和 HTTPUpgrade 传输的 TLS 层。使用 WebSocket 和 HTTPUpgrade 时，dae 提供的 ALPN 为 `http/1.1`。gRPC、HTTP/2 和 Meek 传输会被拒绝。
+- ClientHello 优先使用链接中的 `fp`（VLESS 和 VMess）；未设置时，若 `global.tls_implementation` 为 `utls`，则使用 `global.utls_imitate`，否则使用 Go crypto/tls 的指纹。JLS 需要封装每个 ClientHello，因此不使用会话恢复。
+- 如果服务器未能证明凭据，dae 会按 SNI 校验其证书。证书有效时，dae 像浏览器一样发送一个 HTTPS 请求，然后以 `jls: authentication failed` 使连接失败；证书无效时，连接以证书错误失败。
 
 ## 外部代理程序
 

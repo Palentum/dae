@@ -132,5 +132,7 @@ replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20260910
 // deriving it from the offered cipher suites, reports fingerprints that provide
 // no usable TLS 1.3 key share, rebuilds the ClientHello up to sixteen times
 // while a randomized fingerprint has not produced one, and resolves fingerprint
-// names the way Xray and sing-box do.
-replace github.com/daeuniverse/outbound => github.com/olicesx/outbound v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683
+// names the way Xray and sing-box do. It also adds the JLS client transport:
+// the Shadowsocks "jls" plugin and security=jls for Trojan, VLESS, VMess and
+// AnyTLS.
+replace github.com/daeuniverse/outbound => github.com/Palentum/outbound v0.0.0-sticky-ip.0.20261008035804-11f7464b3f61

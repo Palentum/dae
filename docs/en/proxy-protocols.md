@@ -6,14 +6,14 @@ dae supports the following proxy protocols:
 | --- | --- | --- |
 | HTTP(S), naiveproxy | | [HTTP(S)](#https) |
 | Socks | Socks4, Socks4a, Socks5 | [Socks](#socks) |
-| VMess / VLESS | VMess: AEAD, alterID=0; TCP, WS, TLS (including Reality), gRPC, Meek, HTTPUpgrade | [v2rayN](https://github.com/2dust/v2rayN/wiki/%E5%88%86%E4%BA%AB%E9%93%BE%E6%8E%A5%E6%A0%BC%E5%BC%8F%E8%AF%B4%E6%98%8E(ver-2)), [DuckSoft](https://github.com/XTLS/Xray-core/discussions/716) |
-| Shadowsocks | AEAD ciphers, stream ciphers, simple-obfs, shadow-tls (SIP003 plugin); see [plugin notes](#shadowsocks-plugins) | [SIP002](https://shadowsocks.org/doc/sip002.html), [SIP008](https://shadowsocks.org/doc/sip008.html) |
+| VMess / VLESS | VMess: AEAD, alterID=0; TCP, WS, TLS (including Reality and [JLS](#jls)), gRPC, Meek, HTTPUpgrade | [v2rayN](https://github.com/2dust/v2rayN/wiki/%E5%88%86%E4%BA%AB%E9%93%BE%E6%8E%A5%E6%A0%BC%E5%BC%8F%E8%AF%B4%E6%98%8E(ver-2)), [DuckSoft](https://github.com/XTLS/Xray-core/discussions/716) |
+| Shadowsocks | AEAD ciphers, stream ciphers, simple-obfs, shadow-tls, [JLS](#jls) (SIP003 plugin); see [plugin notes](#shadowsocks-plugins) | [SIP002](https://shadowsocks.org/doc/sip002.html), [SIP008](https://shadowsocks.org/doc/sip008.html) |
 | ShadowsocksR | | |
-| Trojan | Trojan-gfw, Trojan-go | [trojan/trojan-go](https://p4gefau1t.github.io/trojan-go/developer/url) |
+| Trojan | Trojan-gfw, Trojan-go; [JLS](#jls) | [trojan/trojan-go](https://p4gefau1t.github.io/trojan-go/developer/url) |
 | Tuic | v5 | [Tuic](https://github.com/daeuniverse/dae/discussions/182) |
 | Juicity | | [Juicity](https://github.com/juicity/juicity?tab=readme-ov-file#link-format) |
 | Hysteria2 | | [Hysteria2](https://v2.hysteria.network/docs/developers/URI-Scheme) |
-| AnyTLS | | [AnyTLS](https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md) |
+| AnyTLS | [JLS](#jls) | [AnyTLS](https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md) |
 | Proxy chain (flexible protocol) | | [Proxy chain](https://github.com/daeuniverse/dae/discussions/236) |
 
 ## URI examples
@@ -41,6 +41,47 @@ For nodes that require a browser-like TLS fingerprint, set `global.tls_implement
 and keep `global.utls_imitate` at the default `chrome_auto`, or append
 `tlsImplementation=utls&utlsImitate=chrome` to the link query.
 If the provider expects no custom SNI, omit `sni` or keep it explicitly empty.
+
+## JLS
+
+[JLS](https://github.com/JimmyHuang454/JLS) hides a proxy server behind the
+TLS handshake of a real website. The client seals a pre-shared username and
+password into the TLS 1.3 ClientHello random, and the server answers with a
+proof in its ServerHello random, so the server needs no certificate of its own.
+A client without the credentials, including an active prober, is relayed to
+the website named in the SNI. dae implements the client side; it interoperates
+with the JLS servers in mihomo (`plugin: jls`, `jls-opts`) and with rustls-jls
+and jls-tls based servers.
+
+| Protocol | Link parameters |
+| --- | --- |
+| Shadowsocks | SIP003 plugin `jls;host=<SNI>;username=<user>;password=<password>[;alpn=h2,http/1.1]` |
+| Trojan, VLESS, AnyTLS | `security=jls&jls-username=<user>&jls-password=<password>`; the SNI comes from `sni` |
+| VMess | `"tls": "jls"`, `"jls-username"` and `"jls-password"` in the share link JSON |
+
+```
+ss://<base64(method:password)>@<server>:443?plugin=jls%3Bhost%3Dwww.example.com%3Busername%3Djls-user%3Bpassword%3Djls-password
+trojan://<password>@<server>:443?security=jls&sni=www.example.com&jls-username=jls-user&jls-password=jls-password
+vless://<uuid>@<server>:443?type=tcp&security=jls&sni=www.example.com&jls-username=jls-user&jls-password=jls-password
+anytls://<password>@<server>:443?security=jls&sni=www.example.com&jls-username=jls-user&jls-password=jls-password
+```
+
+- `username` is called `iv` and `password` is called `pwd` in rustls-jls; the
+  Shadowsocks plugin accepts both spellings.
+- Set the SNI to the website the server relays unauthenticated clients to.
+  Without `sni`, Shadowsocks, VLESS and VMess use `host`, and dae otherwise
+  uses the server address.
+- JLS replaces the TLS layer of TCP, WebSocket and HTTPUpgrade transports.
+  Under WebSocket and HTTPUpgrade dae offers ALPN `http/1.1`. gRPC, HTTP/2 and
+  Meek transports are rejected.
+- The ClientHello uses the link's `fp` (VLESS and VMess), else
+  `global.utls_imitate` when `global.tls_implementation` is `utls`, else the Go
+  crypto/tls fingerprint. Session resumption is disabled because JLS has to
+  seal every ClientHello.
+- If the server does not prove the credentials, dae verifies its certificate
+  for the SNI. With a valid certificate dae sends one HTTPS request the way a
+  browser would, then fails the connection with `jls: authentication failed`;
+  otherwise the connection fails with the certificate error.
 
 ## External proxy programs
 
